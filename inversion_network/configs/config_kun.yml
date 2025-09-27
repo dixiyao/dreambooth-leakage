@@ -1,0 +1,16 @@
+basic:
+  dataset: dreambooth
+  validdataset: dreambooth
+  face_similarity: true
+  attack_train_epochs: 10
+  test_interval: 10
+  algorithm: ours
+training:
+  !include training_settings.yml
+model:
+  save_path: models_path
+  data_path: ./data/kun
+  valid_data_path: ./data/kun
+  cache_path: ./data/cache
+  local_files_only: false
+

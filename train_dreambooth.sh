@@ -1,0 +1,26 @@
+# accelerate launch \
+python3 train_dreambooth.py \
+  --pretrained_model_name_or_path=CompVis/stable-diffusion-v1-4 \
+  --instance_data_dir=data/dreambooth/clock/ \
+  --class_data_dir=class \
+  --output_dir=output \
+  --train_text_encoder \
+  --with_prior_preservation --prior_loss_weight=1.0 \
+  --num_dataloader_workers=0 \
+  --instance_prompt="aswe clock" \
+  --class_prompt="a clock" \
+  --validation_prompt="aswe clock on the beach" \
+  --resolution=512 \
+  --train_batch_size=1 \
+  --lr_scheduler="constant" \
+  --lr_warmup_steps=0 \
+  --num_class_images=200 \
+  --use_lora \
+  --lora_r 16 \
+  --lora_alpha 27 \
+  --lora_text_encoder_r 16 \
+  --lora_text_encoder_alpha 17 \
+  --learning_rate=1e-4 \
+  --gradient_accumulation_steps=1 \
+  --gradient_checkpointing \
+  --max_train_steps=1000

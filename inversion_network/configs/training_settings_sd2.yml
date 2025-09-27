@@ -1,0 +1,39 @@
+pretrained_model_name_or_path: stabilityai/stable-diffusion-2-1-base
+instance_data_dir: instance
+class_data_dir: class
+output_dir: output
+num_class_images:  200
+with_prior_preservation: true
+prior_loss_weight: 1.0
+train_batch_size: 1
+resolution: 512 
+max_train_steps: 1000
+num_dataloader_workers: 0
+checkpointing_steps: 500
+gradient_accumulation_steps: 1
+gradient_checkpointing: true
+train_text_encoder: true
+training_precesion: 32
+instance_tokens_max_length: 77
+embedding_dim: 1024
+lambda_embedding: 1
+max_valid_steps: 5
+lora: 
+  use_lora: true
+  lora_r: 16
+  lora_alpha: 27 
+  lora_text_encoder_r: 16 
+  lora_text_encoder_alpha: 17 
+optim:
+  lr_scheduler: constant
+  lr_warmup_steps: 0
+  learning_rate: 0.0001
+  lr_num_cycles: 1
+  lr_power: 1
+  max_grad_norm: 1.0
+  adam_beta1: 0.9
+  adam_beta2: 0.999
+  adam_weight_decay: 0.01
+  adam_epsilon: 0.00000001
+  clip_encoder_learning_rate: 0.005
+  clip_adam_weight_decay: 0.0005

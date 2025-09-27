@@ -1,0 +1,16 @@
+basic:
+  dataset: celebahq
+  face_similarity: true
+  attack_train_epochs: 1000
+  test_interval: 10
+  algorithm: ours
+  attack_learning_rate: 0.1
+training:
+  !include training_settings_sd2.yml
+model:
+  save_path: models_path
+  data_path: ./data/celebahq
+  valid_data_path: ./data/celebahq
+  cache_path: ./data/cache
+  local_files_only: false
+

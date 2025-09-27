@@ -1,0 +1,15 @@
+basic:
+  dataset: dreambooth
+  face_similarity: false
+  attack_train_epochs: 10 #1000
+  test_interval: 10
+  algorithm: DLG #ours
+training:
+  !include training_settings.yml
+model:
+  save_path: models_path
+  data_path: ./data/dreambooth
+  valid_data_path: ./data/dreambooth_duck
+  cache_path: ./data/cache
+  local_files_only: false
+

@@ -1,0 +1,7 @@
+*.DS_Store
+experiments/
+.vscode/settings.json
+*.pyc
+*.log
+*lock
+data/

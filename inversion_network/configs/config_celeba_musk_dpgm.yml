@@ -1,0 +1,21 @@
+basic:
+  dataset: celebahq
+  validdataset: dreambooth
+  face_similarity: true
+  attack_train_epochs: 1000
+  test_interval: 10
+  algorithm: ours
+  defense:
+    method: DPGM
+    epsilon: 10 # 2, 0.1
+    noise: 0.6 # 0.975,16
+    delta: 0.00001
+training:
+  !include training_settings.yml
+model:
+  save_path: models_path_musk
+  data_path: ./data/CelebAHQ
+  valid_data_path: ./data/faces
+  cache_path: ./data/cache
+  local_files_only: false
+
