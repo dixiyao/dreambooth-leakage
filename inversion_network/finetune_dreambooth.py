@@ -99,7 +99,7 @@ def generate_image_with_embeddings(
     )
     pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
         pipeline.scheduler.config,
-        Dcache_dir=Config().model.cache_path,
+        cache_dir=Config().model.cache_path,
         local_files_only=Config().model.local_files_only,
     )
     pipeline.set_progress_bar_config(disable=True)
@@ -252,6 +252,15 @@ def finetune(
     if Config().training.train_text_encoder:
         text_encoder.train()
 
+    # Snapshot theta_0 of the trainable LoRA params so the attack-time call
+    # can return Delta_theta = theta_s - theta_0 (Algorithm 2 line 11),
+    # consistent with how the encoder is trained.
+    initial_lora_params = [
+        param.detach().cpu().clone()
+        for param in unet.parameters()
+        if param.requires_grad
+    ]
+
     # Start fine-tuning.
     for epoch in range(steps):
         if total_steps >= steps:
@@ -343,8 +352,11 @@ def finetune(
                 progress_bar.update(1)
     text_encoder = accelerator.unwrap_model(text_encoder)
     unet = accelerator.unwrap_model(unet)
-    model_updates = []
-    for param in unet.parameters():
-        if param.requires_grad:
-            model_updates.append(param.detach().cpu())
+    # Return Delta_theta = theta_s - theta_0 to match the encoder's training
+    # input (Algorithm 2 line 11 + attack phase in Section IV.C).
+    trainable_params = [p for p in unet.parameters() if p.requires_grad]
+    model_updates = [
+        (current.detach().cpu() - initial)
+        for current, initial in zip(trainable_params, initial_lora_params)
+    ]
     return model_updates

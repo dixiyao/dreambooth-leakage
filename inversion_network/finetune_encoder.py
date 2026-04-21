@@ -1,5 +1,8 @@
 """
-The functions used for fine-tuning DreamBooth with LoRA method
+Joint fine-tuning of (a) the DreamBooth LoRA on a batch of images and
+(b) the inversion-network encoder, as specified in Algorithm 2 of
+"Risks When Sharing LoRA Fine-Tuned Diffusion Model Weights"
+(https://arxiv.org/abs/2409.08482).
 """
 
 import itertools
@@ -35,7 +38,18 @@ def finetune_encoder_diffusion_together(
     encoder_optimizer,
 ):
     """
-    Fine-tune the DreamBooth model with LoRA method
+    One training call implements the inner loop of Algorithm 2:
+
+      while iteration < steps:
+        pick X ~ public data                              (batch)
+        sample s' in [1, steps]
+        for r in 1..s':
+          iteration += 1
+          step one LoRA update  theta_{r-1} -> theta_r
+          Delta_theta = theta_r - theta_0  (trainable LoRA params)
+          embed Delta_theta with the frozen-CLIP hyper encoder
+          feed noisy latents + network embedding to theta_r
+          update the encoder on the epsilon-prediction MSE
     """
     progress_bar = tqdm(range(1, steps), disable=False)
     progress_bar.set_description("Steps")
@@ -97,6 +111,16 @@ def finetune_encoder_diffusion_together(
         loss_fn_unet = DPGM.DP_loss(Config().basic.defense.noise)
     else:
         loss_fn_unet = torch.nn.functional.mse_loss
+
+    # Algorithm 2 line 11: Delta_theta = theta_r - theta_0.
+    # Snapshot theta_0 of the *trainable* LoRA params before any optimizer step
+    # so we can compute true model updates (rather than passing raw weights).
+    initial_lora_params = [
+        param.detach().clone()
+        for param in unet.parameters()
+        if param.requires_grad
+    ]
+
     # Start fine-tuning.
     for epoch in range(steps):
         if total_steps >= steps:
@@ -183,20 +207,17 @@ def finetune_encoder_diffusion_together(
                     "d_loss": loss.detach().item(),
                 }
 
-                # Fine-tune the encoder
-                model_updates = []
-                for param in unet.parameters():
-                    if param.requires_grad:
-                        model_updates.append(param.detach())
-                target_tokens = tokenizer(
-                    instance_prompt,
-                    truncation=True,
-                    padding="max_length",
-                    max_length=tokenizer.model_max_length,
-                    return_tensors="pt",
-                ).input_ids
-                target_embeddings = text_encoder(target_tokens.to(accelerator.device))[
-                    0
+                # ---- Algorithm 2 lines 11-16: encoder update --------------
+                # Line 11: Delta_theta = theta_r - theta_0.
+                # We pair each current trainable LoRA param with its snapshot
+                # taken before the first optimizer step so the encoder receives
+                # true model *updates* rather than raw weights.
+                trainable_params = [
+                    param for param in unet.parameters() if param.requires_grad
+                ]
+                model_updates = [
+                    (current.detach() - initial)
+                    for current, initial in zip(trainable_params, initial_lora_params)
                 ]
 
                 latents = vae.encode(
@@ -206,10 +227,9 @@ def finetune_encoder_diffusion_together(
                 ).latent_dist.sample()
                 latents = latents * 0.18215
 
-                # Sample noise that we'll add to the latents
+                # Line 13: sample fresh Gaussian noise to add to the same image batch.
                 noise = torch.randn_like(latents)
                 bsz = latents.shape[0]
-                # Sample a random timestep for each image
                 timesteps = torch.randint(
                     0,
                     noise_scheduler.config.num_train_timesteps,
@@ -217,18 +237,15 @@ def finetune_encoder_diffusion_together(
                     device=latents.device,
                 )
                 timesteps = timesteps.long()
-
-                # Add noise to the latents according to the noise magnitude at each timestep
-                # (this is the forward diffusion process)
                 noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-                lora_embedding, kld_loss = nn_encoder(model_updates, total_steps)
-                loss_embedding = F.mse_loss(
-                    lora_embedding.float(), target_embeddings, reduction="mean"
-                )
+                # Line 12: encode (Delta_theta, timestep r) -> network embedding.
+                # total_steps == r in Algorithm 2.
+                lora_embedding, _kld_loss = nn_encoder(model_updates, total_steps)
+
+                # Line 14: feed (noisy image, network embedding) into theta_r.
                 model_pred = unet(noisy_latents, timesteps, lora_embedding).sample
 
-                # Get the target for loss depending on the prediction type
                 if noise_scheduler.config.prediction_type == "epsilon":
                     target = noise
                 elif noise_scheduler.config.prediction_type == "v_prediction":
@@ -238,26 +255,26 @@ def finetune_encoder_diffusion_together(
                         f"Unknown prediction type {noise_scheduler.Config().prediction_type}"
                     )
 
-                loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
-
-                loss = (
-                    loss
-                    + loss_embedding * Config().training.lambda_embedding
-                    # + 0.0 * kld_loss
+                # Line 16: theta_r is frozen w.r.t. this update; the only
+                # gradient consumer is `nn_encoder` because `model_updates`
+                # was detached above. Algorithm 2 specifies *only* the
+                # epsilon-prediction MSE here.
+                encoder_loss = F.mse_loss(
+                    model_pred.float(), target.float(), reduction="mean"
                 )
+
                 encoder_optimizer.zero_grad()
-                loss.backward(retain_graph=True)
+                encoder_loss.backward()
                 encoder_optimizer.step()
 
-                logs["en_loss"] = loss.detach().item()
-                logs["em_loss"] = loss_embedding.detach().item()
+                logs["en_loss"] = encoder_loss.detach().item()
                 with open(
                     os.path.join(Config().model.save_path, "results/loss.csv"),
                     "a",
                     encoding="utf-8",
                 ) as result_file:
                     result_writer = csv.writer(result_file)
-                    result_writer.writerow([logs["em_loss"]])
+                    result_writer.writerow([logs["en_loss"]])
 
                 progress_bar.set_postfix(**logs)
                 progress_bar.update(1)

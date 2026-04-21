@@ -21,7 +21,9 @@ swap = lambda w, h: (h, w)
 class HyperNet(torch.nn.Module):
     "A hypernet that takes a matrix and outputs a vector."
 
-    def __init__(self, matrix_height, matrix_width, *args, **kwargs) -> None:
+    def __init__(
+        self, matrix_height, matrix_width, hidden_dim=768, *args, **kwargs
+    ) -> None:
         super().__init__(*args, **kwargs)
         layer_num = 4
         self.encoder = nn.ModuleList()
@@ -33,7 +35,9 @@ class HyperNet(torch.nn.Module):
             self.encoder.append(
                 self.build_layer(matrix_height, matrix_height, if_last, if_start)
             )
-        self.projection = torch.nn.Linear(matrix_width, 512)
+        # Project each matrix embedding to the inner CLIP's hidden_dim so that
+        # the concatenated sequence can be fed straight into CLIP's text encoder.
+        self.projection = torch.nn.Linear(matrix_width, hidden_dim)
 
     def build_layer(
         self,
@@ -78,13 +82,22 @@ class HyperNet(torch.nn.Module):
 
 
 class HyperEncoder(torch.nn.Module):
-    """Use a frozen CLIP model to embed the LoRA weights."""
+    """Use a frozen CLIP model to embed the LoRA weights.
+
+    Following Section V.A.1 of the paper, the inner CLIP is the ViT-L/14 text
+    encoder (matching the paper's reported ~444 MB encoder size and aligning
+    with Stable Diffusion v1.4's text-embedding dimension of 768).
+    """
 
     def __init__(
-        self, clip_pretrained_model="openai/clip-vit-base-patch32", projection_dim=768
+        self,
+        clip_pretrained_model="openai/clip-vit-large-patch14",
+        projection_dim=768,
     ) -> None:
         super().__init__()
         self.clip_model = CLIPTextModel.from_pretrained(clip_pretrained_model)
+        # The inner-CLIP hidden size drives every internal dimension below.
+        hidden_dim = self.clip_model.config.hidden_size
         unet_config = LoraConfig(
             r=Config().training.lora.lora_r,
             lora_alpha=Config().training.lora.lora_alpha,
@@ -103,15 +116,17 @@ class HyperEncoder(torch.nn.Module):
                 w, h = param.shape
                 if w > h:
                     w, h = swap(w, h)
-                self.hypernetworks.append(HyperNet(w, h))
+                self.hypernetworks.append(HyperNet(w, h, hidden_dim=hidden_dim))
         self.hypernetworks = torch.nn.ModuleList(self.hypernetworks)
-        self.task_token = torch.nn.Parameter(torch.randn(1, 1, 512))
-        self.first_norm = nn.LayerNorm(512)
-        self.mean = torch.nn.Linear(512, projection_dim)
-        self.log_var = torch.nn.Linear(512, projection_dim)
-        # Timestep embedding
-        self.time_proj = Timesteps(512, True, 0)
-        self.time_embedding = TimestepEmbedding(512, 512)
+        self.task_token = torch.nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.first_norm = nn.LayerNorm(hidden_dim)
+        self.mean = torch.nn.Linear(hidden_dim, projection_dim)
+        self.log_var = torch.nn.Linear(hidden_dim, projection_dim)
+        # Timestep embedding (paper Sec. IV.B - Algorithm 2 uses timestep r as
+        # an additional input to the encoder so that every fine-tuning step
+        # can be used as a training sample).
+        self.time_proj = Timesteps(hidden_dim, True, 0)
+        self.time_embedding = TimestepEmbedding(hidden_dim, hidden_dim)
         for param in self.clip_model.parameters():
             param.requires_grad = False
 

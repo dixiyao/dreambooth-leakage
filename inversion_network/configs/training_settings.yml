@@ -16,7 +16,6 @@ train_text_encoder: true
 training_precesion: 32
 instance_tokens_max_length: 77
 embedding_dim: 768
-lambda_embedding: 1
 max_valid_steps: 5
 lora: 
   use_lora: true

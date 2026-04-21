@@ -49,7 +49,7 @@ class CelebADataSet(torchvision.datasets.CelebA):
             ]
 
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
-        identity_indicies = self.identity_indices[index + 1]
+        identity_indicies = self.identity_indices[index]
         identity_indicies_select = random.choices(
             identity_indicies, k=min(5, len(identity_indicies))
         )

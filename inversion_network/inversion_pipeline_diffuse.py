@@ -111,7 +111,7 @@ class InversionPipeline:
             encoding="utf-8",
         ) as result_file:
             result_writer = csv.writer(result_file)
-            header_row = ["embedding_loss"]
+            header_row = ["encoder_loss"]
             result_writer.writerow(header_row)
 
     def fine_tune_process(
@@ -326,7 +326,7 @@ class InversionPipeline:
         """
         self.nn_encoder.load_state_dict(
             torch.load(
-                os.path.join(Config().model.save_path, "clip_encoder"),
+                os.path.join(Config().model.save_path, "clip_encoder.pth"),
                 map_location="cpu",
             )
         )
